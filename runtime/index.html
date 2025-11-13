@@ -28,11 +28,10 @@
 
       const framebuffer_write = (pixels, width, height, stride) => {
         if (!framebuffer_enabled) {
-          // First framebuffer update - show canvas, hide terminal
+          // First framebuffer update - show canvas alongside terminal
           canvas.style.display = "block";
-          document.getElementById("terminal").style.display = "none";
           framebuffer_enabled = true;
-          log("Framebuffer mode activated");
+          console.log("Framebuffer mode activated - keeping terminal visible");
         }
 
         // Convert BGRA to RGBA for Canvas
