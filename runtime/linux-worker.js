@@ -247,10 +247,58 @@
       let console_read_count = Atomics.load(console_read_messenger, 0);
       return console_read_count;
     },
+
+    // Host callbacks used by the Wasm framebuffer driver.
+
+    fb_sys_write: (info, buf, count, ppos) => {
+      // This is a kernel helper function for framebuffer write
+      // We don't need to implement it in JS - just return count
+      // The actual write happens via direct memory access
+      return count;
+    },
+
+    wasm_driver_fb_update: (pixels, width, height, stride) => {
+      console.log(`FB UPDATE: pixels=${pixels}, width=${width}, height=${height}, stride=${stride}`);
+      const memory_u8 = new Uint8Array(memory.buffer);
+      
+      // Copy pixel data (BGRA format) from Wasm memory
+      const pixelData = memory_u8.slice(pixels, pixels + (height * stride));
+      
+      console.log(`FB UPDATE: Sending ${pixelData.length} bytes to main thread`);
+      port.postMessage({
+        method: "framebuffer_update",
+        pixels: pixelData,
+        width: width,
+        height: height,
+        stride: stride,
+      }, [pixelData.buffer]); // Transfer buffer for better performance
+    },
   };
 
   /// Callbacks from the main thread.
   const message_callbacks = {
+    input_keyboard: (message) => {
+      // Forward keyboard event to kernel
+      if (vmlinux_instance && vmlinux_instance.exports.wasm_input_keyboard_event) {
+        vmlinux_instance.exports.wasm_input_keyboard_event(
+          message.scancode,
+          message.pressed
+        );
+      }
+    },
+
+    input_mouse: (message) => {
+      // Forward mouse event to kernel
+      if (vmlinux_instance && vmlinux_instance.exports.wasm_input_mouse_event) {
+        vmlinux_instance.exports.wasm_input_mouse_event(
+          message.x,
+          message.y,
+          message.buttons,
+          message.wheel
+        );
+      }
+    },
+
     init: (message) => {
       runner_name = message.runner_name;
       memory = message.memory;

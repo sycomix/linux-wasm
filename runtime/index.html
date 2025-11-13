@@ -11,6 +11,7 @@
     document.write("<l" + "ink rel=\"stylesheet\" href=\"bright.css?v=" + wasm_linux_version + "\">");
     document.write("<l" + "ink rel=\"stylesheet\" href=\"xterm.css?v=" + wasm_linux_version + "\">");
     document.write("<scr" + "ipt src=\"linux.js?v=" + wasm_linux_version + "\"></scr" + "ipt>");
+    document.write("<scr" + "ipt src=\"input-handler.js?v=" + wasm_linux_version + "\"></scr" + "ipt>");
     document.write("<scr" + "ipt src=\"xterm.js?v=" + wasm_linux_version + "\"></scr" + "ipt>");
 
     document.addEventListener("DOMContentLoaded", async () => {
@@ -19,6 +20,43 @@
 
       const log = (text) => term.write(("\x1B[2m" + text + "\x1B[0m\n").replaceAll("\n", "\r\n"));
       const console_write = (data) => term.write(data);  // Pre-decoded UTF-8 data.
+
+      // Set up framebuffer canvas
+      const canvas = document.getElementById("framebuffer");
+      const ctx = canvas.getContext("2d", { alpha: false });
+      let framebuffer_enabled = false;
+
+      const framebuffer_write = (pixels, width, height, stride) => {
+        if (!framebuffer_enabled) {
+          // First framebuffer update - show canvas, hide terminal
+          canvas.style.display = "block";
+          document.getElementById("terminal").style.display = "none";
+          framebuffer_enabled = true;
+          log("Framebuffer mode activated");
+        }
+
+        // Convert BGRA to RGBA for Canvas
+        const imageData = ctx.createImageData(width, height);
+        const data = imageData.data;
+        
+        for (let y = 0; y < height; y++) {
+          const srcOffset = y * stride;
+          const dstOffset = y * width * 4;
+          
+          for (let x = 0; x < width; x++) {
+            const si = srcOffset + (x * 4);
+            const di = dstOffset + (x * 4);
+            
+            // BGRA -> RGBA conversion
+            data[di + 0] = pixels[si + 2]; // R
+            data[di + 1] = pixels[si + 1]; // G
+            data[di + 2] = pixels[si + 0]; // B
+            data[di + 3] = 255;             // A (opaque)
+          }
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+      };
 
       // This is needed for SharedArrayBuffer on modern browsers.
       if (!window.crossOriginIsolated) {
@@ -41,8 +79,18 @@
         }
         const initrd = await initrd_request.arrayBuffer();
 
-        const os = await linux(worker_url, vmlinux, boot_cmdline, initrd, log, console_write);
+        const os = await linux(worker_url, vmlinux, boot_cmdline, initrd, log, console_write, framebuffer_write);
         term.onData(data => os.key_input(data));
+        
+        // Set up input handler for framebuffer canvas
+        const canvas = document.getElementById("framebuffer");
+        const inputHandler = new WasmInputHandler(canvas, os);
+        
+        // Store globally for debugging
+        window.linuxOS = os;
+        window.inputHandler = inputHandler;
+        
+        log("Input system initialized - keyboard and mouse ready");
       } catch (error) {
         log("Linux/Wasm failed with (" + error.name + "): " + error.message + "\n" + error.stack);
         throw error;
@@ -53,6 +101,7 @@
 
 <body>
   <h1>Linux/Wasm</h1>
+  <canvas id="framebuffer" width="800" height="600" style="display: none; border: 2px solid #333; background: #000;"></canvas>
   <div id="terminal" tabindex="0"></div>
   <pre>
 Examples: ls          watch uptime              head /proc/cpuinfo

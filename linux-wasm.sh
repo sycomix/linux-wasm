@@ -65,6 +65,10 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
         git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0010-Add-Wasm-console-support.patch"
         git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0011-Add-wasm_defconfig.patch"
         git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0012-HACK-Workaround-broken-wq_worker_comm.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0013-Add-Wasm-framebuffer-support.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0014-Update-wasm_defconfig-for-framebuffer.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0015-Add-Wasm-input-support.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0016-Update-wasm_defconfig-for-input.patch"
     handled=1;;&
 
     "fetch-musl"|"all-musl"|"fetch"|"all")
