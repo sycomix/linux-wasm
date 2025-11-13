@@ -1,0 +1,220 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Linux-Wasm Builder <builder@linux-wasm.local>
+Date: Mon, 11 Nov 2025 00:00:00 +0000
+Subject: [PATCH] Add Wasm framebuffer support
+
+Adds a simple framebuffer driver that renders to an HTML5 Canvas
+in the browser via JavaScript callbacks. Supports 800x600x32 display.
+---
+ arch/wasm/drivers/Kconfig    |  13 +++
+ arch/wasm/drivers/Makefile   |   1 +
+ arch/wasm/drivers/fb_wasm.c  | 165 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 179 insertions(+)
+ create mode 100644 arch/wasm/drivers/fb_wasm.c
+
+diff --git a/arch/wasm/drivers/Kconfig b/arch/wasm/drivers/Kconfig
+index be8b75496..5c8b96ab3 100644
+--- a/arch/wasm/drivers/Kconfig
++++ b/arch/wasm/drivers/Kconfig
+@@ -19,4 +19,17 @@ config HVC_WASM
+ 
+ 	  If you don't know what to do here, say Y.
+ 
++config FB_WASM
++	bool "Wasm framebuffer support"
++	depends on FB
++	select FB_CFB_FILLRECT
++	select FB_CFB_COPYAREA
++	select FB_CFB_IMAGEBLIT
++	help
++	  This enables a framebuffer driver that renders to an HTML5 Canvas
++	  element in the browser via JavaScript callbacks. Provides a
++	  graphical display for the Wasm Linux system at 800x600 resolution
++	  with 32-bit color depth.
++
++	  If you don't know what to do here, say Y.
++
+ endmenu
+diff --git a/arch/wasm/drivers/Makefile b/arch/wasm/drivers/Makefile
+index 0ebdc20a8..d5fb61e9f 100644
+--- a/arch/wasm/drivers/Makefile
++++ b/arch/wasm/drivers/Makefile
+@@ -1,3 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ 
+ obj-$(CONFIG_HVC_WASM) += hvc_wasm.o
++obj-$(CONFIG_FB_WASM) += fb_wasm.o
+diff --git a/arch/wasm/drivers/fb_wasm.c b/arch/wasm/drivers/fb_wasm.c
+new file mode 100644
+index 000000000..7c8e5a8e0
+--- /dev/null
++++ b/arch/wasm/drivers/fb_wasm.c
+@@ -0,0 +1,165 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Wasm framebuffer driver
++ *
++ * Renders to HTML5 Canvas via JavaScript callbacks
++ */
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/errno.h>
++#include <linux/string.h>
++#include <linux/mm.h>
++#include <linux/vmalloc.h>
++#include <linux/delay.h>
++#include <linux/interrupt.h>
++#include <linux/fb.h>
++#include <linux/init.h>
++#include <linux/platform_device.h>
++
++/* Framebuffer dimensions */
++#define FB_WASM_WIDTH  800
++#define FB_WASM_HEIGHT 600
++#define FB_WASM_BPP    32
++#define FB_WASM_SIZE   (FB_WASM_WIDTH * FB_WASM_HEIGHT * (FB_WASM_BPP / 8))
++
++/* Host callback to update the browser canvas */
++extern void wasm_driver_fb_update(void *pixels, int width, int height, int stride);
++
++static struct fb_info *fb_wasm_info;
++static void *fb_wasm_mem;
++
++static struct fb_var_screeninfo fb_wasm_var = {
++	.xres		= FB_WASM_WIDTH,
++	.yres		= FB_WASM_HEIGHT,
++	.xres_virtual	= FB_WASM_WIDTH,
++	.yres_virtual	= FB_WASM_HEIGHT,
++	.bits_per_pixel	= FB_WASM_BPP,
++	.red		= { 16, 8, 0 },
++	.green		= { 8, 8, 0 },
++	.blue		= { 0, 8, 0 },
++	.transp		= { 24, 8, 0 },
++	.activate	= FB_ACTIVATE_NOW,
++	.height		= -1,
++	.width		= -1,
++	.vmode		= FB_VMODE_NONINTERLACED,
++};
++
++static struct fb_fix_screeninfo fb_wasm_fix = {
++	.id		= "Wasm FB",
++	.type		= FB_TYPE_PACKED_PIXELS,
++	.visual		= FB_VISUAL_TRUECOLOR,
++	.xpanstep	= 0,
++	.ypanstep	= 0,
++	.ywrapstep	= 0,
++	.line_length	= FB_WASM_WIDTH * (FB_WASM_BPP / 8),
++	.accel		= FB_ACCEL_NONE,
++};
++
++static void fb_wasm_deferred_io(struct fb_info *info, struct list_head *pagelist)
++{
++	/* Called when framebuffer is written to - send update to JavaScript */
++	wasm_driver_fb_update(fb_wasm_mem, FB_WASM_WIDTH, FB_WASM_HEIGHT, 
++	                      fb_wasm_fix.line_length);
++}
++
++static struct fb_deferred_io fb_wasm_defio = {
++	.delay		= HZ / 30,  /* Update at ~30 FPS */
++	.deferred_io	= fb_wasm_deferred_io,
++};
++
++static int fb_wasm_setcolreg(unsigned regno, unsigned red, unsigned green,
++			     unsigned blue, unsigned transp, struct fb_info *info)
++{
++	if (regno >= 256)
++		return -EINVAL;
++
++	/* We're true color, not palette-based */
++	return 0;
++}
++
++static int fb_wasm_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
++{
++	return 0;
++}
++
++static int fb_wasm_blank(int blank_mode, struct fb_info *info)
++{
++	return 0;
++}
++
++static struct fb_ops fb_wasm_ops = {
++	.owner		= THIS_MODULE,
++	.fb_setcolreg	= fb_wasm_setcolreg,
++	.fb_pan_display	= fb_wasm_pan_display,
++	.fb_blank	= fb_wasm_blank,
++	.fb_fillrect	= cfb_fillrect,
++	.fb_copyarea	= cfb_copyarea,
++	.fb_imageblit	= cfb_imageblit,
++};
++
++static int fb_wasm_probe(struct platform_device *pdev)
++{
++	int ret;
++
++	/* Allocate framebuffer memory */
++	fb_wasm_mem = vmalloc(FB_WASM_SIZE);
++	if (!fb_wasm_mem) {
++		pr_err("fb_wasm: failed to allocate framebuffer memory\n");
++		return -ENOMEM;
++	}
++
++	memset(fb_wasm_mem, 0, FB_WASM_SIZE);
++
++	/* Allocate fb_info structure */
++	fb_wasm_info = framebuffer_alloc(0, &pdev->dev);
++	if (!fb_wasm_info) {
++		pr_err("fb_wasm: failed to allocate fb_info\n");
++		vfree(fb_wasm_mem);
++		return -ENOMEM;
++	}
++
++	/* Set up fb_info */
++	fb_wasm_info->fbops = &fb_wasm_ops;
++	fb_wasm_info->var = fb_wasm_var;
++	fb_wasm_info->fix = fb_wasm_fix;
++	fb_wasm_info->screen_base = fb_wasm_mem;
++	fb_wasm_info->screen_size = FB_WASM_SIZE;
++	fb_wasm_info->flags = FBINFO_DEFAULT | FBINFO_VIRTFB;
++
++	/* Set up deferred I/O for efficient updates */
++	fb_wasm_info->fbdefio = &fb_wasm_defio;
++	fb_deferred_io_init(fb_wasm_info);
++
++	/* Register framebuffer */
++	ret = register_framebuffer(fb_wasm_info);
++	if (ret < 0) {
++		pr_err("fb_wasm: failed to register framebuffer\n");
++		framebuffer_release(fb_wasm_info);
++		vfree(fb_wasm_mem);
++		return ret;
++	}
++
++	pr_info("fb_wasm: framebuffer at %p, size %d bytes\n", fb_wasm_mem, FB_WASM_SIZE);
++	pr_info("fb_wasm: %dx%d, %d bpp\n", FB_WASM_WIDTH, FB_WASM_HEIGHT, FB_WASM_BPP);
++
++	return 0;
++}
++
++static struct platform_driver fb_wasm_driver = {
++	.probe	= fb_wasm_probe,
++	.driver	= {
++		.name	= "wasm-fb",
++	},
++};
++
++static int __init fb_wasm_init(void)
++{
++	struct platform_device *pdev;
++
++	pdev = platform_device_register_simple("wasm-fb", 0, NULL, 0);
++	if (IS_ERR(pdev))
++		return PTR_ERR(pdev);
++
++	return platform_driver_register(&fb_wasm_driver);
++}
++module_init(fb_wasm_init);
+-- 
+2.34.1
