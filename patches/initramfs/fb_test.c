@@ -1,131 +1,106 @@
 /* Framebuffer test - draw checker pattern */
-#include <stdio.h>
-#include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdint.h>
-#include <sys/ioctl.h>
 
-/* Simplified fb structures for our test */
-struct fb_var_screeninfo
+/* Simple write wrapper */
+static void print(const char *str)
 {
-    uint32_t xres;
-    uint32_t yres;
-    uint32_t xres_virtual;
-    uint32_t yres_virtual;
-    uint32_t xoffset;
-    uint32_t yoffset;
-    uint32_t bits_per_pixel;
-};
+    write(1, str, __builtin_strlen(str));
+}
 
-struct fb_fix_screeninfo
+static void print_num(int num)
 {
-    char id[16];
-    unsigned long smem_start;
-    uint32_t smem_len;
-    uint32_t type;
-    uint32_t type_aux;
-    uint32_t visual;
-    uint16_t xpanstep;
-    uint16_t ypanstep;
-    uint16_t ywrapstep;
-    uint32_t line_length;
-};
+    char buf[12];
+    int i = 0;
+    int neg = 0;
 
-#define FBIOGET_VSCREENINFO 0x4600
-#define FBIOGET_FSCREENINFO 0x4602
+    if (num < 0)
+    {
+        neg = 1;
+        num = -num;
+    }
+
+    if (num == 0)
+    {
+        write(1, "0", 1);
+        return;
+    }
+
+    while (num > 0)
+    {
+        buf[i++] = '0' + (num % 10);
+        num /= 10;
+    }
+
+    if (neg)
+        buf[i++] = '-';
+
+    while (i > 0)
+    {
+        write(1, &buf[--i], 1);
+    }
+}
 
 int main()
 {
     int fd;
-    struct fb_var_screeninfo vinfo;
-    struct fb_fix_screeninfo finfo;
-    uint32_t *fbp;
+    uint32_t pixel;
     int x, y;
     int square_size = 50;
+    int width = 800;
+    int height = 600;
+    int written;
 
-    printf("Opening framebuffer device /dev/fb0...\n");
-    fd = open("/dev/fb0", O_RDWR);
-    if (fd == -1)
+    print("Opening /dev/fb0...\n");
+    fd = open("/dev/fb0", O_WRONLY);
+    if (fd < 0)
     {
-        perror("Error opening framebuffer device");
+        print("Error: Cannot open /dev/fb0\n");
         return 1;
     }
 
-    /* Get fixed screen information */
-    if (ioctl(fd, FBIOGET_FSCREENINFO, &finfo) == -1)
+    print("Drawing checker pattern to framebuffer...\n");
+
+    /* Draw checker pattern pixel by pixel */
+    for (y = 0; y < height; y++)
     {
-        perror("Error reading fixed information");
-        close(fd);
-        return 1;
-    }
-
-    /* Get variable screen information */
-    if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) == -1)
-    {
-        perror("Error reading variable information");
-        close(fd);
-        return 1;
-    }
-
-    printf("Framebuffer: %dx%d, %d bpp\n",
-           vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
-    printf("Line length: %d bytes\n", finfo.line_length);
-
-    /* Allocate buffer */
-    int screensize = vinfo.yres * finfo.line_length;
-    fbp = (uint32_t *)malloc(screensize);
-    if (!fbp)
-    {
-        printf("Error allocating framebuffer memory\n");
-        close(fd);
-        return 1;
-    }
-
-    printf("Drawing checker pattern...\n");
-
-    /* Draw checker pattern */
-    for (y = 0; y < vinfo.yres; y++)
-    {
-        for (x = 0; x < vinfo.xres; x++)
+        for (x = 0; x < width; x++)
         {
             int check_x = (x / square_size) % 2;
             int check_y = (y / square_size) % 2;
-            uint32_t color;
 
             if (check_x == check_y)
             {
-                /* White square */
-                color = 0xFFFFFFFF;
+                /* White square - ARGB format */
+                pixel = 0xFFFFFFFF;
             }
             else
             {
-                /* Black square */
-                color = 0xFF000000;
+                /* Black square - ARGB format */
+                pixel = 0xFF000000;
             }
 
-            /* Calculate position in framebuffer */
-            int offset = y * (finfo.line_length / 4) + x;
-            fbp[offset] = color;
+            /* Write pixel */
+            written = write(fd, &pixel, 4);
+            if (written != 4)
+            {
+                print("Write error at pixel ");
+                print_num(y * width + x);
+                print("\n");
+                close(fd);
+                return 1;
+            }
+        }
+
+        /* Progress indicator every 100 lines */
+        if (y % 100 == 0)
+        {
+            print(".");
         }
     }
 
-    /* Write to framebuffer */
-    printf("Writing to framebuffer...\n");
-    if (write(fd, fbp, screensize) != screensize)
-    {
-        perror("Error writing to framebuffer");
-    }
-    else
-    {
-        printf("Checker pattern drawn successfully!\n");
-    }
-
-    free(fbp);
+    print("\nChecker pattern complete!\n");
     close(fd);
-
-    printf("Press Enter to exit...\n");
-    getchar();
-
     return 0;
 }

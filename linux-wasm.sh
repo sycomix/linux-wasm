@@ -205,11 +205,23 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
             find . -print0 | cpio --null -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio"
         )
 
-        # And copy a simple init too.
+        # And copy init script and test scripts.
         (
             cd "$LW_ROOT/patches/initramfs/"
             # The below command must run in the same directory as the root of the files it will copy.
+            # Copy init
             echo "./init" | cpio -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio"
+            # Copy all .sh scripts to /bin in the initramfs
+            for script in *.sh; do
+                [ -f "$script" ] || continue
+                mkdir -p "$LW_INSTALL/initramfs/tmp_scripts/bin"
+                cp "$script" "$LW_INSTALL/initramfs/tmp_scripts/bin/${script%.sh}"
+                chmod +x "$LW_INSTALL/initramfs/tmp_scripts/bin/${script%.sh}"
+            done
+            if [ -d "$LW_INSTALL/initramfs/tmp_scripts" ]; then
+                (cd "$LW_INSTALL/initramfs/tmp_scripts" && find . -print0 | cpio --null -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio")
+                rm -rf "$LW_INSTALL/initramfs/tmp_scripts"
+            fi
         )
 
         # Finally we should zip it up so that it takes less space. This is the file to distribute.
