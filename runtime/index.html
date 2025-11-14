@@ -281,17 +281,31 @@
       const log = (text) => term.write(("\x1B[2m" + text + "\x1B[0m\n").replaceAll("\n", "\r\n"));
       const console_write = (data) => term.write(data);
 
+<<<<<<< HEAD
       // Framebuffer setup
+=======
+      // Set up framebuffer canvas
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
       const canvas = document.getElementById("framebuffer");
       const ctx = canvas.getContext("2d", { alpha: false });
       let framebuffer_enabled = false;
 
       const framebuffer_write = (pixels, width, height, stride) => {
         if (!framebuffer_enabled) {
+<<<<<<< HEAD
           document.getElementById("framebuffer-container").classList.add("active");
           framebuffer_enabled = true;
         }
 
+=======
+          // First framebuffer update - show canvas alongside terminal
+          canvas.style.display = "block";
+          framebuffer_enabled = true;
+          console.log("Framebuffer mode activated - keeping terminal visible");
+        }
+
+        // Convert BGRA to RGBA for Canvas
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
         const imageData = ctx.createImageData(width, height);
         const data = imageData.data;
         
@@ -302,17 +316,30 @@
           for (let x = 0; x < width; x++) {
             const si = srcOffset + (x * 4);
             const di = dstOffset + (x * 4);
+<<<<<<< HEAD
             data[di + 0] = pixels[si + 2]; // R
             data[di + 1] = pixels[si + 1]; // G
             data[di + 2] = pixels[si + 0]; // B
             data[di + 3] = 255;             // A
+=======
+            
+            // BGRA -> RGBA conversion
+            data[di + 0] = pixels[si + 2]; // R
+            data[di + 1] = pixels[si + 1]; // G
+            data[di + 2] = pixels[si + 0]; // B
+            data[di + 3] = 255;             // A (opaque)
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
           }
         }
         
         ctx.putImageData(imageData, 0, 0);
       };
 
+<<<<<<< HEAD
       // Check cross-origin isolation
+=======
+      // This is needed for SharedArrayBuffer on modern browsers.
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
       if (!window.crossOriginIsolated) {
         document.getElementById("error-cors").classList.add("show");
         log("Warning: Cross-origin isolation not enabled. SharedArrayBuffer may not work.");
@@ -332,6 +359,7 @@
         }
         const initrd = await initrd_request.arrayBuffer();
 
+<<<<<<< HEAD
         log("Booting kernel...");
         document.getElementById("status").textContent = "⚡ RUNNING";
         document.getElementById("status").style.borderColor = "var(--accent-primary)";
@@ -347,6 +375,20 @@
         
         setupInputHandler(canvas, linux);
 
+=======
+        const os = await linux(worker_url, vmlinux, boot_cmdline, initrd, log, console_write, framebuffer_write);
+        term.onData(data => os.key_input(data));
+        
+        // Set up input handler for framebuffer canvas
+        const canvas = document.getElementById("framebuffer");
+        const inputHandler = new WasmInputHandler(canvas, os);
+        
+        // Store globally for debugging
+        window.linuxOS = os;
+        window.inputHandler = inputHandler;
+        
+        log("Input system initialized - keyboard and mouse ready");
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
       } catch (error) {
         log("Error: " + error.message);
         document.getElementById("error-boot").textContent = error.message;
@@ -360,6 +402,7 @@
 </head>
 
 <body>
+<<<<<<< HEAD
   <header>
     <div class="container">
       <h1>Linux/Wasm</h1>
@@ -367,6 +410,27 @@
       <div class="status-badge" id="status">🔄 LOADING</div>
     </div>
   </header>
+=======
+  <h1>Linux/Wasm</h1>
+  <canvas id="framebuffer" width="800" height="600" style="display: none; border: 2px solid #333; background: #000;"></canvas>
+  <div id="terminal" tabindex="0"></div>
+  <pre>
+Examples: ls          watch uptime              head /proc/cpuinfo
+          pwd         usleep 1234567            ps | grep kthreadd
+          top         vi file.txt               find /proc -name cmdline -maxdepth 2
+          mount       exec sh                   echo Hello &gt;&gt; world && cat world
+          iostat      strings /bin/busybox      grep "Cpus_allowed_list" &lt; /proc/self/status</pre>
+  <article>
+    <p>
+      The console takes over <kbd>Ctrl</kbd> + <kbd>C</kbd> etc. Depending on your platform and browser, adding
+      <kbd>Shift</kbd> to the combo may work. Using <kbd>Ctrl</kbd> + <kbd>Insert</kbd> for copy and <kbd>Shift</kbd> +
+      <kbd>Insert</kbd> for paste may also work. Right-clicking and using the context menu should also work.
+    </p>
+    <p>
+      A small Q&A follows. As always, if you are unsure about how some piece of software works, take a look at the
+      <a href="https://github.com/joelseverin/linux-wasm/tree/master/patches" target="_blank">source code</a>!
+    </p>
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
 
   <div class="container">
     <div class="main-content">

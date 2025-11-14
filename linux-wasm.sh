@@ -219,11 +219,14 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
                 cp "$script" "$LW_INSTALL/initramfs/tmp_scripts/bin/${script%.sh}"
                 chmod +x "$LW_INSTALL/initramfs/tmp_scripts/bin/${script%.sh}"
             done
+<<<<<<< HEAD
             # Copy compiled binaries from bin/ directory if it exists
             if [ -d "bin" ]; then
                 mkdir -p "$LW_INSTALL/initramfs/tmp_scripts/bin"
                 cp -r bin/* "$LW_INSTALL/initramfs/tmp_scripts/bin/"
             fi
+=======
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
             if [ -d "$LW_INSTALL/initramfs/tmp_scripts" ]; then
                 (cd "$LW_INSTALL/initramfs/tmp_scripts" && find . -print0 | cpio --null -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio")
                 rm -rf "$LW_INSTALL/initramfs/tmp_scripts"

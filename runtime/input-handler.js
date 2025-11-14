@@ -239,8 +239,11 @@ class WasmInputHandler {
     }
   }
 }
+<<<<<<< HEAD
 
 // Export setup function for use in HTML
 function setupInputHandler(canvas, linuxInstance) {
   return new WasmInputHandler(canvas, linuxInstance);
 }
+=======
+>>>>>>> 9c9391c134ad7c418a6fe6a9a8e4b5e8f5885024
