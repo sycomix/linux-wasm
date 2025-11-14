@@ -65,6 +65,10 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
         git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0010-Add-Wasm-console-support.patch"
         git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0011-Add-wasm_defconfig.patch"
         git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0012-HACK-Workaround-broken-wq_worker_comm.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0013-Add-Wasm-framebuffer-support.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0014-Update-wasm_defconfig-for-framebuffer.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0015-Add-Wasm-input-support.patch"
+        git -C "$LW_SRC/kernel" am < "$LW_ROOT/patches/kernel/0016-Update-wasm_defconfig-for-input.patch"
     handled=1;;&
 
     "fetch-musl"|"all-musl"|"fetch"|"all")
@@ -149,9 +153,10 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
 
             # LIBCC is set mostly to something non-empty, which is needed for the build to succeed.
             # Note how we build --disable-shared (i.e. disable dynamic linking by musl) but with -fPIC and -shared.
+            # -mmutable-globals is required for thread-local storage (_Thread_local) to work
             CROSS_COMPILE="$LW_INSTALL/llvm/bin/llvm-" \
     	    CC="$LW_INSTALL/llvm/bin/clang" \
-    	    CFLAGS="--target=wasm32-unknown-unknown -Xclang -target-feature -Xclang +atomics -Xclang -target-feature -Xclang +bulk-memory -fPIC -Wl,-shared" \
+    	    CFLAGS="--target=wasm32-unknown-unknown -mmutable-globals -Xclang -target-feature -Xclang +atomics -Xclang -target-feature -Xclang +bulk-memory -fPIC -Wl,-shared" \
 	        LIBCC="--rtlib=compiler-rt" \
 	        "$LW_SRC/musl/configure" --target=wasm --prefix=/ --disable-shared "--srcdir=$LW_SRC/musl"
             make -j $LW_JOBS_MUSL_COMPILE 
@@ -201,16 +206,59 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
             find . -print0 | cpio --null -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio"
         )
 
-        # And copy a simple init too.
+        # And copy init script and test scripts.
         (
             cd "$LW_ROOT/patches/initramfs/"
             # The below command must run in the same directory as the root of the files it will copy.
+            # Copy init
             echo "./init" | cpio -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio"
+            # Copy all .sh scripts to /bin in the initramfs
+            for script in *.sh; do
+                [ -f "$script" ] || continue
+                mkdir -p "$LW_INSTALL/initramfs/tmp_scripts/bin"
+                cp "$script" "$LW_INSTALL/initramfs/tmp_scripts/bin/${script%.sh}"
+                chmod +x "$LW_INSTALL/initramfs/tmp_scripts/bin/${script%.sh}"
+            done
+            # Copy compiled binaries from bin/ directory if it exists
+            if [ -d "bin" ]; then
+                mkdir -p "$LW_INSTALL/initramfs/tmp_scripts/bin"
+                cp -r bin/* "$LW_INSTALL/initramfs/tmp_scripts/bin/"
+            fi
+            if [ -d "$LW_INSTALL/initramfs/tmp_scripts" ]; then
+                (cd "$LW_INSTALL/initramfs/tmp_scripts" && find . -print0 | cpio --null -ov --format=newc -A -O "$LW_INSTALL/initramfs/initramfs.cpio")
+                rm -rf "$LW_INSTALL/initramfs/tmp_scripts"
+            fi
         )
 
         # Finally we should zip it up so that it takes less space. This is the file to distribute.
         rm -f "$LW_INSTALL/initramfs/initramfs.cpio.gz"
         gzip "$LW_INSTALL/initramfs/initramfs.cpio"
+    handled=1;;&
+
+    "build-lite-rootfs"|"all-lite")
+        "$LW_ROOT/build-lite-rootfs.sh"
+    handled=1;;&
+
+    "build-toolchain-volume"|"all-lite")
+        "$LW_ROOT/build-toolchain-volume.sh"
+    handled=1;;&
+
+    "build-full-rootfs"|"all-full")
+        "$LW_ROOT/build-minimal-rootfs.sh"
+    handled=1;;&
+
+    "deploy-lite")
+        echo "Deploying lightweight rootfs to runtime..."
+        cp "$LW_INSTALL/initramfs/initramfs-lite.cpio.gz" "$LW_ROOT/runtime/initramfs.cpio.gz"
+        cp "$LW_INSTALL/volumes/toolchain.tar.gz" "$LW_ROOT/runtime/" 2>/dev/null || true
+        echo "✓ Deployed: runtime/initramfs.cpio.gz ($(du -h "$LW_ROOT/runtime/initramfs.cpio.gz" | cut -f1))"
+        [ -f "$LW_ROOT/runtime/toolchain.tar.gz" ] && echo "✓ Deployed: runtime/toolchain.tar.gz ($(du -h "$LW_ROOT/runtime/toolchain.tar.gz" | cut -f1))"
+    handled=1;;&
+
+    "deploy-full")
+        echo "Deploying full rootfs to runtime..."
+        cp "$LW_INSTALL/initramfs/initramfs-debian.cpio.gz" "$LW_ROOT/runtime/initramfs.cpio.gz"
+        echo "✓ Deployed: runtime/initramfs.cpio.gz ($(du -h "$LW_ROOT/runtime/initramfs.cpio.gz" | cut -f1))"
     handled=1;;&
 
     ""|"help")
@@ -224,7 +272,17 @@ case "$1" in # note use of ;;& meaning that each case is re-tested (can hit mult
         echo "    build-xxx    -- Build component xxx (no fetching)."
         echo "    build-tools  -- Build all build tool components (llvm)."
         echo "    build-os     -- Build all OS software (excluding build tools)."
-        echo "  and components include (in order): llvm, kernel, musl, busybox-kernel-headers, busybox, initramfs."
+        echo ""
+        echo "  Rootfs options:"
+        echo "    build-lite-rootfs       -- Build lightweight rootfs (BusyBox + musl, 1.3MB)"
+        echo "    build-toolchain-volume  -- Build separate LLVM toolchain volume (865MB)"
+        echo "    build-full-rootfs       -- Build full rootfs with integrated toolchain (1.3GB)"
+        echo "    all-lite                -- Build lite rootfs + toolchain volume"
+        echo "    all-full                -- Build full integrated rootfs"
+        echo "    deploy-lite             -- Copy lite rootfs to runtime/"
+        echo "    deploy-full             -- Copy full rootfs to runtime/"
+        echo ""
+        echo "  Components (in order): llvm, kernel, musl, busybox-kernel-headers, busybox, initramfs."
         echo ""
         echo "Fetch will download and patch the source. Build will configure, compile and install (to a folder in the workspace)."
         echo ""

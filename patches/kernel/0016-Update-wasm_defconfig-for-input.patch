@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Linux-Wasm Builder <builder@linux-wasm.local>
+Date: Wed, 13 Nov 2025 00:00:00 +0000
+Subject: [PATCH] Update wasm_defconfig for input support
+
+Enable input subsystem and Wasm input drivers for keyboard and mouse.
+---
+ arch/wasm/configs/wasm_defconfig | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/wasm/configs/wasm_defconfig b/arch/wasm/configs/wasm_defconfig
+index 1234567..abcdefg 100644
+--- a/arch/wasm/configs/wasm_defconfig
++++ b/arch/wasm/configs/wasm_defconfig
+@@ -50,6 +50,15 @@ CONFIG_FRAMEBUFFER_CONSOLE=y
+ CONFIG_LOGO=y
+ CONFIG_LOGO_LINUX_CLUT224=y
+ 
++#
++# Input device support
++#
++CONFIG_INPUT=y
++CONFIG_INPUT_KEYBOARD=y
++CONFIG_INPUT_MOUSE=y
++CONFIG_INPUT_MOUSEDEV=y
++CONFIG_INPUT_EVDEV=y
++CONFIG_INPUT_WASM_KEYBOARD=y
++CONFIG_INPUT_WASM_MOUSE=y
+ 
+ #
+ # File systems
+-- 
+2.43.0
+

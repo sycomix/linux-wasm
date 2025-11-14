@@ -3,6 +3,10 @@
 mount -t proc none /proc
 mount -t sysfs none /sys
 
+# Create framebuffer device node
+mknod /dev/fb0 c 29 0
+chmod 666 /dev/fb0
+
 echo
 echo "Welcome to Linux running on Wasm!"
 echo "Known bugs:"

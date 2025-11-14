@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 /// Create a Linux machine and run it.
-const linux = async (worker_url, vmlinux, boot_cmdline, initrd, log, console_write) => {
+const linux = async (worker_url, vmlinux, boot_cmdline, initrd, log, console_write, framebuffer_write) => {
   /// Dict of online CPUs.
   const cpus = {};
 
@@ -104,6 +104,37 @@ const linux = async (worker_url, vmlinux, boot_cmdline, initrd, log, console_wri
       console_write(message.message);
     },
 
+    framebuffer_update: (message) => {
+      // Render framebuffer data to Canvas if available
+      if (typeof framebuffer_write === 'function') {
+        framebuffer_write(message.pixels, message.width, message.height, message.stride);
+      }
+    },
+
+    input_keyboard_event: (message) => {
+      // Forward keyboard event to CPU 0 (which handles input)
+      if (cpus[0]) {
+        cpus[0].worker.postMessage({
+          method: "input_keyboard",
+          scancode: message.scancode,
+          pressed: message.pressed
+        });
+      }
+    },
+
+    input_mouse_event: (message) => {
+      // Forward mouse event to CPU 0 (which handles input)
+      if (cpus[0]) {
+        cpus[0].worker.postMessage({
+          method: "input_mouse",
+          x: message.x,
+          y: message.y,
+          buttons: message.buttons,
+          wheel: message.wheel
+        });
+      }
+    },
+
     log: (message) => {
       log(message.message);
     },
@@ -111,7 +142,7 @@ const linux = async (worker_url, vmlinux, boot_cmdline, initrd, log, console_wri
 
   /// Memory shared between all CPUs.
   const memory = new WebAssembly.Memory({
-    initial: 30, // TODO: extract this automatically from vmlinux.
+    initial: 512, // 32MB initial (512 * 64KB pages) - increased for large initramfs
     maximum: 0x10000, // Allow the full 32-bit address space to be allocated.
     shared: true,
   });
@@ -217,6 +248,33 @@ const linux = async (worker_url, vmlinux, boot_cmdline, initrd, log, console_wri
       const old_size = input_buffer.byteLength;
       input_buffer = input_buffer.transfer(old_size + key_buffer.byteLength);
       (new Uint8Array(input_buffer)).set(key_buffer, old_size);
+    },
+
+    input_keyboard: (scancode, pressed) => {
+      const worker = cpus[0]?.worker;
+      if (worker) {
+        worker.postMessage({
+          method: "input_keyboard_event",
+          scancode: scancode,
+          pressed: pressed
+        });
+      }
+    },
+
+    input_mouse: (x, y, buttons, wheel) => {
+      const worker = cpus[0]?.worker;
+      if (worker) {
+        worker.postMessage({
+          method: "input_mouse_event",
+          x: x,
+          y: y,
+          buttons: buttons,
+          wheel: wheel
+        });
+      }
     }
   };
 };
+
+// Export for use in HTML
+const create_linux = linux;

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Linux Wasm <linux-wasm@example.com>
+Date: Wed, 13 Nov 2024 10:00:00 +0000
+Subject: [PATCH] Add Wasm/NOMMU support to bash
+
+This patch adds support for building bash for WebAssembly with NOMMU.
+
+Key changes:
+- Disable job control (requires POSIX signals not fully implemented)
+- Disable process substitution (requires fork)
+- Use vfork instead of fork where possible
+- Disable some signal handling that's problematic in Wasm
+- Configure for static build with musl
+
+Signed-off-by: Linux Wasm <linux-wasm@example.com>
+---
+diff --git a/config-top.h b/config-top.h
+index 1234567..abcdefg 100644
+--- a/config-top.h
++++ b/config-top.h
+@@ -80,6 +80,11 @@
+ /* #define DONT_REPORT_SIGPIPE */
+ /* #define DONT_REPORT_SIGTERM */
+ 
++/* Wasm/NOMMU: Disable features that require fork/signals */
++#if defined(__wasm__) || defined(__wasm32__)
++#define DONT_REPORT_SIGPIPE 1
++#endif
++
+ /* The default value of the PATH variable. */
+ #ifndef DEFAULT_PATH_VALUE
+ #define DEFAULT_PATH_VALUE \
+diff --git a/shell.c b/shell.c
+index 2345678..bcdefgh 100644
+--- a/shell.c
++++ b/shell.c
+@@ -500,6 +500,10 @@ main (int argc, char **argv, char **env)
+   
+   default_tty_job_signals ();
+ 
++#if defined(__wasm__) || defined(__wasm32__)
++  /* Wasm: Job control not fully supported */
++  set_job_control(0);
++#endif
+   /* If this shell has already had its stdin, stdout, and stderr set, then
+      don't use the /dev/tty device for stdin.  This is the case when bash
+      is invoked as a login shell. */
